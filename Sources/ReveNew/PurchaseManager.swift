@@ -20,23 +20,35 @@ public final class PurchaseManager: ObservableObject {
     private let userDefaults = UserDefaults.standard
     private let lastLoggedTransactionKey = "com.revenew.lastLoggedTransaction"
     
-    // TODO: - Update this to pass appName dynamically
     private let reveNew: PurchaseObserver
     
     private var productsIds: [String] = []
     
-    init(appName: String, host: String, port: Int, productsIds: [String]) {
+    /// Initialize Purchase Manager, a wrapper of StoreKit 2 to handle purchase for you.
+    /// - Parameters:
+    ///   - appName: A String that represents the name of your app to gather analytics later
+    ///   - host: A String of the IP address where the service is hosted
+    ///   - port: An Integere of the port where the service is hosted
+    ///   - productsIds: An optional array of productsIds of your subscriptions or IAP from App Store. If you fetch this via RemoteConfig or other services later, please call func setProductsIds(productsIds: [String]) to set your products ids
+    public init(appName: String, host: String, port: Int, productsIds: [String]?) {
         self.reveNew = PurchaseObserver(appName: appName, host: host, port: port)
         self.updates = observeTransactionUpdates()
-        self.productsIds = productsIds
         
-        Task {
-            await hasActiveSubscription()
+        if let productsIds {
+            setProductsIds(productsIds)
         }
     }
     
     deinit {
         updates?.cancel()
+    }
+    
+    public func setProductsIds(_ productsIds: [String]) {
+        self.productsIds = productsIds
+        
+        Task {
+            await hasActiveSubscription()
+        }
     }
     
     /// Take care of fetching IAP and/or subscriptions
