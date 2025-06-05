@@ -70,7 +70,9 @@ extension LogEndpoint: Endpoint {
                 "kind": productInfo.kind,
                 "isSandbox": productInfo.isSandbox,
                 "appName": productInfo.appName,
-                "storeFront": productInfo.storeFront
+                "storeFront": productInfo.storeFront,
+                "isTrial": productInfo.isTrial,
+                "trialPeriod": productInfo.trialPeriod ?? ""
             ]
         case .logDownload(let userId, let appName, _, _):
             return [
@@ -109,4 +111,6 @@ struct ProductInfo {
     let isSandbox: Bool
     let appName: String
     let storeFront: String
+    let isTrial: Bool
+    let trialPeriod: String?
 }

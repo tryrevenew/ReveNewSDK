@@ -33,6 +33,21 @@ final class LogManager: ObservableObject {
         }
         
         let isSandbox = transaction.environment != .production
+        
+        // Determine if this is a trial purchase
+        var isTrial = false
+        var trialPeriod: String? = nil
+        
+        if let subscription = product.subscription {
+            // Check if product has a trial offer
+            if let introductoryOffer = subscription.introductoryOffer,
+               introductoryOffer.paymentMode == .freeTrial {
+                isTrial = true
+                // Format the trial period (e.g., "1 week", "2 months")
+                let period = introductoryOffer.period
+                trialPeriod = "\(period.value) \(period.unit.localizedDescription)"
+            }
+        }
 
         let productInfo = ProductInfo(
             currencyCode: product.priceFormatStyle.currencyCode,
@@ -41,7 +56,9 @@ final class LogManager: ObservableObject {
             kind: product.type.rawValue,
             isSandbox: isSandbox,
             appName: appName,
-            storeFront: storeFront
+            storeFront: storeFront,
+            isTrial: isTrial,
+            trialPeriod: trialPeriod
         )
         
         let _ = try await service.logPurchase(productInfo: productInfo)

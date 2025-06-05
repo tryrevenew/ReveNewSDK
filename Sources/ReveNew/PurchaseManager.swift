@@ -80,8 +80,11 @@ public final class PurchaseManager: ObservableObject {
                 // Successful purhcase
                 await transaction.finish()
                 
-                // Log Purchase and store transaction ID
-                reveNew.logPurchase(transaction, product)
+                // Determine if this is a trial purchase
+                let (isTrial, trialPeriod) = determineTrialStatus(transaction: transaction, product: product)
+                
+                // Log Purchase with trial information
+                reveNew.logTrialOrConversion(transaction, product, isTrial: isTrial, trialPeriod: trialPeriod)
                 userDefaults.set(String(transaction.id), forKey: lastLoggedTransactionKey)
                 
                 isLoading = false
@@ -93,8 +96,11 @@ public final class PurchaseManager: ObservableObject {
                 print("Unverified purchase. Might be jailbroken. Error: \(error)")
                 isLoading = false
                 
-                // Log Purchase and store transaction ID
-                reveNew.logPurchase(transaction, product)
+                // Determine if this is a trial purchase
+                let (isTrial, trialPeriod) = determineTrialStatus(transaction: transaction, product: product)
+                
+                // Log Purchase with trial information
+                reveNew.logTrialOrConversion(transaction, product, isTrial: isTrial, trialPeriod: trialPeriod)
                 userDefaults.set(String(transaction.id), forKey: lastLoggedTransactionKey)
                 
                 return product
@@ -170,8 +176,11 @@ public final class PurchaseManager: ObservableObject {
                         
                         // Only log if this is a new transaction
                         if lastLoggedId != transactionId {
-                            // This is a new transaction, log it
-                            reveNew.logPurchase(transaction, product)
+                            // Determine if this is a trial start or conversion
+                            let (isTrial, trialPeriod) = determineTrialStatus(transaction: transaction, product: product)
+                            
+                            // Log with trial-specific information
+                            reveNew.logTrialOrConversion(transaction, product, isTrial: isTrial, trialPeriod: trialPeriod)
                             
                             // Store this transaction ID as the last logged
                             userDefaults.set(transactionId, forKey: lastLoggedTransactionKey)
@@ -234,5 +243,32 @@ public final class PurchaseManager: ObservableObject {
         }
         
         isSubscribed = false
+    }
+    
+    /// Helper method to determine if a transaction is a trial start or a conversion
+    /// - Parameters:
+    ///   - transaction: The StoreKit transaction
+    ///   - product: The product being purchased
+    /// - Returns: A tuple containing (isTrial, trialPeriod)
+    private func determineTrialStatus(transaction: Transaction, product: Product) -> (isTrial: Bool, trialPeriod: String?) {
+        var isTrial = false
+        var trialPeriod: String? = nil
+        
+        if let subscription = product.subscription,
+           let introductoryOffer = subscription.introductoryOffer,
+           introductoryOffer.paymentMode == .freeTrial {
+            
+            // Check if this is the first transaction by looking at the original purchase date
+            // If the transaction date is close to the original purchase date, it's likely the first transaction
+            let isFirstTransaction = transaction.originalPurchaseDate.timeIntervalSince(transaction.purchaseDate).magnitude < 60 // Within a minute
+            
+            if isFirstTransaction {
+                isTrial = true
+                let period = introductoryOffer.period
+                trialPeriod = "\(period.value) \(period.unit.localizedDescription)"
+            }
+        }
+        
+        return (isTrial, trialPeriod)
     }
 }
