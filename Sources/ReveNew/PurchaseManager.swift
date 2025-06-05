@@ -46,6 +46,7 @@ public final class PurchaseManager: ObservableObject {
     public func setProductsIds(_ productsIds: [String]) {
         self.productsIds = productsIds
         
+        // Check subscription status without forcing a sync
         Task {
             await hasActiveSubscription()
         }
@@ -131,12 +132,13 @@ public final class PurchaseManager: ObservableObject {
     }
     
     /// Take care of restoring a purchase (ex. subscription or NON consumable purchase)
+    /// Note: This will trigger an Apple ID sign-in prompt if the user is not signed in
     /// - Returns: A Bool in case the restore purchase was successful or not
     public func restorePurchase() async -> Bool {
         isLoading = true
         
-        // Sync transactions with App Store
-        let isSynced = (try? await AppStore.sync()) != nil
+        // Sync transactions with App Store - this will trigger sign-in prompt if needed
+        let isSynced = await syncWithAppStore()
         if !isSynced {
             isLoading = false
             return false
@@ -213,13 +215,10 @@ public final class PurchaseManager: ObservableObject {
     /// Checks if the user has any active subscription
     /// - Returns: A Boolean indicating whether the user has an active subscription
     private func hasActiveSubscription() async {
-        // First sync with App Store to ensure we have the latest transaction status
-        guard (try? await AppStore.sync()) != nil else {
-            isSubscribed = false
-            return
-        }
+        // Check current entitlements without forcing a sync first
+        // This avoids triggering the Apple ID sign-in prompt unnecessarily
+        var foundActiveSubscription = false
         
-        // Check current entitlements for any active subscription
         for await result in Transaction.currentEntitlements {
             guard case .verified(let transaction) = result else { continue }
             
@@ -231,18 +230,19 @@ public final class PurchaseManager: ObservableObject {
                 if let expirationDate = transaction.expirationDate {
                     // For subscriptions, check if it hasn't expired
                     if expirationDate > Date() {
-                        isSubscribed = true
-                        return
+                        foundActiveSubscription = true
+                        break
                     }
                 } else {
                     // For non-subscription purchases that don't expire
-                    isSubscribed = true
-                    return
+                    foundActiveSubscription = true
+                    break
                 }
             }
         }
         
-        isSubscribed = false
+        // Only update the published property once
+        isSubscribed = foundActiveSubscription
     }
     
     /// Helper method to determine if a transaction is a trial start or a conversion
@@ -270,5 +270,21 @@ public final class PurchaseManager: ObservableObject {
         }
         
         return (isTrial, trialPeriod)
+    }
+    
+    /// Explicitly sync with the App Store to get the latest transaction status
+    /// Note: This may trigger an Apple ID sign-in prompt if the user is not signed in
+    /// - Returns: A Boolean indicating whether the sync was successful
+    public func syncWithAppStore() async -> Bool {
+        isLoading = true
+        let syncResult = (try? await AppStore.sync()) != nil
+        isLoading = false
+        
+        if syncResult {
+            // After successful sync, update subscription status
+            await hasActiveSubscription()
+        }
+        
+        return syncResult
     }
 }
