@@ -84,9 +84,11 @@ public final class PurchaseManager: ObservableObject {
                 // Determine if this is a trial purchase
                 let (isTrial, trialPeriod) = determineTrialStatus(transaction: transaction, product: product)
                 
+                // Save ID before logging to close the race window with observeTransactionUpdates
+                userDefaults.set(String(transaction.id), forKey: lastLoggedTransactionKey)
+                
                 // Log Purchase with trial information
                 reveNew.logTrialOrConversion(transaction, product, isTrial: isTrial, trialPeriod: trialPeriod)
-                userDefaults.set(String(transaction.id), forKey: lastLoggedTransactionKey)
                 
                 isLoading = false
                 
@@ -100,9 +102,11 @@ public final class PurchaseManager: ObservableObject {
                 // Determine if this is a trial purchase
                 let (isTrial, trialPeriod) = determineTrialStatus(transaction: transaction, product: product)
                 
+                // Save ID before logging to close the race window with observeTransactionUpdates
+                userDefaults.set(String(transaction.id), forKey: lastLoggedTransactionKey)
+                
                 // Log Purchase with trial information
                 reveNew.logTrialOrConversion(transaction, product, isTrial: isTrial, trialPeriod: trialPeriod)
-                userDefaults.set(String(transaction.id), forKey: lastLoggedTransactionKey)
                 
                 return product
             case .pending:
@@ -150,7 +154,7 @@ public final class PurchaseManager: ObservableObject {
         for await result in Transaction.currentEntitlements {
             guard case .verified(let transaction) = result else { continue }
             
-            if productsIds.contains(transaction.productID) {
+            if transaction.revocationDate == nil {
                 hasActivePurchase = true
                 break
             }
@@ -165,32 +169,42 @@ public final class PurchaseManager: ObservableObject {
             for await result in Transaction.updates {
                 guard case .verified(let transaction) = result else { continue }
                 
-                // Find the corresponding product for this transaction
+                let transactionId = String(transaction.id)
+                let lastLoggedId = userDefaults.string(forKey: lastLoggedTransactionKey)
+                
+                // Skip if already logged (handles the race with purchaseProduct() and replayed transactions)
+                guard lastLoggedId != transactionId else {
+                    await transaction.finish()
+                    continue
+                }
+                
+                // Skip renewals: a renewal has a different transaction.id than transaction.originalID.
+                // We only want to log the very first purchase of a subscription (including trial starts),
+                // which is when id == originalID. Renewals are expected and should not generate events.
+                guard transaction.id == transaction.originalID else {
+                    await transaction.finish()
+                    await hasActiveSubscription()
+                    continue
+                }
+                
+                // Skip revoked transactions
+                guard transaction.revocationDate == nil else {
+                    await transaction.finish()
+                    await hasActiveSubscription()
+                    continue
+                }
+                
+                // At this point we have a new, original, non-revoked transaction that arrived
+                // from outside the app (e.g. promoted IAP, Ask to Buy approval).
+                // Find the corresponding product to log it.
                 if let product = products.first(where: { $0.id == transaction.productID }) {
-                    // Check if this is a subscription transaction
-                    if let subscriptionStatus = await transaction.subscriptionStatus,
-                       subscriptionStatus.state != .revoked {
-                        // Get the transaction ID and convert to string for storage
-                        let transactionId = String(transaction.id)
-                        
-                        // Get the last logged transaction ID
-                        let lastLoggedId = userDefaults.string(forKey: lastLoggedTransactionKey)
-                        
-                        // Only log if this is a new transaction
-                        if lastLoggedId != transactionId {
-                            // Determine if this is a trial start or conversion
-                            let (isTrial, trialPeriod) = determineTrialStatus(transaction: transaction, product: product)
-                            
-                            // Log with trial-specific information
-                            reveNew.logTrialOrConversion(transaction, product, isTrial: isTrial, trialPeriod: trialPeriod)
-                            
-                            // Store this transaction ID as the last logged
-                            userDefaults.set(transactionId, forKey: lastLoggedTransactionKey)
-                            
-                            // Update subscription status
-                            await hasActiveSubscription()
-                        }
-                    }
+                    let (isTrial, trialPeriod) = determineTrialStatus(transaction: transaction, product: product)
+                    
+                    // Save ID before logging to prevent any re-entry
+                    userDefaults.set(transactionId, forKey: lastLoggedTransactionKey)
+                    reveNew.logTrialOrConversion(transaction, product, isTrial: isTrial, trialPeriod: trialPeriod)
+                    
+                    await hasActiveSubscription()
                 }
                 
                 await transaction.finish()
@@ -222,9 +236,6 @@ public final class PurchaseManager: ObservableObject {
         for await result in Transaction.currentEntitlements {
             guard case .verified(let transaction) = result else { continue }
             
-            // Check if the transaction is for one of our products
-            guard productsIds.contains(transaction.productID) else { continue }
-            
             // Check if the transaction is still valid (not expired or revoked)
             if transaction.revocationDate == nil {
                 if let expirationDate = transaction.expirationDate {
@@ -251,25 +262,27 @@ public final class PurchaseManager: ObservableObject {
     ///   - product: The product being purchased
     /// - Returns: A tuple containing (isTrial, trialPeriod)
     private func determineTrialStatus(transaction: Transaction, product: Product) -> (isTrial: Bool, trialPeriod: String?) {
-        var isTrial = false
-        var trialPeriod: String? = nil
-        
-        if let subscription = product.subscription,
-           let introductoryOffer = subscription.introductoryOffer,
-           introductoryOffer.paymentMode == .freeTrial {
-            
-            // Check if this is the first transaction by looking at the original purchase date
-            // If the transaction date is close to the original purchase date, it's likely the first transaction
-            let isFirstTransaction = transaction.originalPurchaseDate.timeIntervalSince(transaction.purchaseDate).magnitude < 60 // Within a minute
-            
-            if isFirstTransaction {
-                isTrial = true
-                let period = introductoryOffer.period
-                trialPeriod = "\(period.value) \(period.unit.localizedDescription)"
-            }
+        guard let introductoryOffer = product.subscription?.introductoryOffer,
+              introductoryOffer.paymentMode == .freeTrial else {
+            return (false, nil)
         }
         
-        return (isTrial, trialPeriod)
+        let isTrial: Bool
+        if #available(iOS 17.2, *) {
+            // On iOS 17.2+ we can confirm the transaction itself used an introductory free trial offer,
+            // ruling out discounted intro prices or promotional offers.
+            isTrial = transaction.offer?.type == .introductory && transaction.offer?.paymentMode == .freeTrial
+        } else {
+            // On older iOS, rely on the product having a free trial intro offer.
+            // This is less precise but still far better than the 60-second timestamp heuristic.
+            isTrial = true
+        }
+        
+        guard isTrial else { return (false, nil) }
+        
+        let period = introductoryOffer.period
+        let trialPeriod = "\(period.value) \(period.unit.localizedDescription)"
+        return (true, trialPeriod)
     }
     
     /// Explicitly sync with the App Store to get the latest transaction status
