@@ -10,10 +10,11 @@ public final class PurchaseObserver {
     /// - Parameters:
     ///   - appName: Your App Name for filtering on the client side and group transactions by app
     ///   - host: Your host address where your backend is hosted (ex. 192.168.1.1)
-    ///   - port: The port that you opened for the api (ex. 3022)
-    public init(appName: String, host: String, port: Int) {
+    ///   - port: The port that you opened for the api (ex. 3022). Optional — omit if not needed.
+    ///   - pathPrefix: An optional prefix prepended to all API paths (ex. "/v2" produces "/v2/api/v1/log-purchase")
+    public init(appName: String, host: String, port: Int? = nil, pathPrefix: String? = nil) {
         self.appName = appName
-        self.logManager = LogManager(host: host, port: port, appName: appName)
+        self.logManager = LogManager(host: host, port: port, pathPrefix: pathPrefix, appName: appName)
     }
     
     public func logPurchase(_ transaction: Transaction, _ product: Product) {

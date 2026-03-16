@@ -14,8 +14,8 @@ final class LogManager: ObservableObject {
     private let keychainManager = KeychainManager()
     private let appName: String
     
-    init(host: String, port: Int, appName: String) {
-        self.service = LogService(host: host, port: port)
+    init(host: String, port: Int? = nil, pathPrefix: String? = nil, appName: String) {
+        self.service = LogService(host: host, port: port, pathPrefix: pathPrefix)
         self.appName = appName
         
         // Check if this is first launch and log download if needed

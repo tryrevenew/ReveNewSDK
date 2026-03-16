@@ -9,23 +9,23 @@ import Foundation
 
 
 enum LogEndpoint {
-    case logPurchase(productInfo: ProductInfo, host: String, port: Int)
-    case logDownload(userId: String, appName: String, host: String, port: Int)
+    case logPurchase(productInfo: ProductInfo, host: String, port: Int?, pathPrefix: String?)
+    case logDownload(userId: String, appName: String, host: String, port: Int?, pathPrefix: String?)
 }
 
 extension LogEndpoint: Endpoint {
     var host: String {
         switch self {
-        case .logPurchase(_, let host, _),
-             .logDownload(_, _, let host, _):
+        case .logPurchase(_, let host, _, _),
+             .logDownload(_, _, let host, _, _):
             return host
         }
     }
     
-    var port: Int {
+    var port: Int? {
         switch self {
-        case .logPurchase(_, _, let port),
-             .logDownload(_, _, _, let port):
+        case .logPurchase(_, _, let port, _),
+             .logDownload(_, _, _, let port, _):
             return port
         }
     }
@@ -39,10 +39,12 @@ extension LogEndpoint: Endpoint {
     
     var path: String {
         switch self {
-        case .logPurchase:
-            return "/api/v1/log-purchase"
-        case .logDownload:
-            return "/api/v1/log-download"
+        case .logPurchase(_, _, _, let pathPrefix):
+            let prefix = pathPrefix.map { $0.hasSuffix("/") ? String($0.dropLast()) : $0 } ?? ""
+            return "\(prefix)/api/v1/log-purchase"
+        case .logDownload(_, _, _, _, let pathPrefix):
+            let prefix = pathPrefix.map { $0.hasSuffix("/") ? String($0.dropLast()) : $0 } ?? ""
+            return "\(prefix)/api/v1/log-download"
         }
     }
 
@@ -62,7 +64,7 @@ extension LogEndpoint: Endpoint {
     
     var body: [String: Any]? {
         switch self {
-        case .logPurchase(let productInfo, _, _):
+        case .logPurchase(let productInfo, _, _, _):
             return [
                 "currencyCode": productInfo.currencyCode,
                 "price": productInfo.price,
@@ -74,7 +76,7 @@ extension LogEndpoint: Endpoint {
                 "isTrial": productInfo.isTrial,
                 "trialPeriod": productInfo.trialPeriod ?? ""
             ]
-        case .logDownload(let userId, let appName, _, _):
+        case .logDownload(let userId, let appName, _, _, _):
             return [
                 "userId": userId,
                 "appName": appName

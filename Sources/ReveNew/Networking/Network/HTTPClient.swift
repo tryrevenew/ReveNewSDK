@@ -15,7 +15,7 @@ protocol Endpoint {
     var header: [String: String]? { get }
     var body: [String: Any]? { get }
     var queryItems: [URLQueryItem]? { get }
-    var port: Int { get }
+    var port: Int? { get }
     
     func buildRequestBody() -> (Data?, contentType: String?)
 }
