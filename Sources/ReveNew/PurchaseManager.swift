@@ -28,10 +28,11 @@ public final class PurchaseManager: ObservableObject {
     /// - Parameters:
     ///   - appName: A String that represents the name of your app to gather analytics later
     ///   - host: A String of the IP address where the service is hosted
-    ///   - port: An Integere of the port where the service is hosted
+    ///   - port: The port where the service is hosted. Optional — omit if not needed.
+    ///   - pathPrefix: An optional prefix prepended to all API paths (ex. "/v2" produces "/v2/api/v1/log-purchase")
     ///   - productsIds: An optional array of productsIds of your subscriptions or IAP from App Store. If you fetch this via RemoteConfig or other services later, please call func setProductsIds(productsIds: [String]) to set your products ids
-    public init(appName: String, host: String, port: Int, productsIds: [String]?) {
-        self.reveNew = PurchaseObserver(appName: appName, host: host, port: port)
+    public init(appName: String, host: String, port: Int? = nil, pathPrefix: String? = nil, productsIds: [String]?) {
+        self.reveNew = PurchaseObserver(appName: appName, host: host, port: port, pathPrefix: pathPrefix)
         self.updates = observeTransactionUpdates()
         
         if let productsIds {

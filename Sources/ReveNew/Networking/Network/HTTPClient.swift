@@ -30,7 +30,7 @@ enum RequestMethod: String {
 
 extension Endpoint {
     var scheme: String {
-        return "http"
+        return "https"
     }
 }
 
